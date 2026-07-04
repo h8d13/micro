@@ -67,6 +67,7 @@ var defaultCommonSettings = map[string]any{
 	"fastdirty":       false,
 	"fileformat":      defaultFileFormat(),
 	"filetype":        "unknown",
+	"hlchunk":         false,
 	"hlsearch":        false,
 	"hltaberrors":     false,
 	"hltrailingws":    false,
