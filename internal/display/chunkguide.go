@@ -28,6 +28,10 @@ const (
 	chunkAnimDuration = 200 * time.Millisecond
 	chunkAnimFrame    = 16 * time.Millisecond
 
+	// a new chunk stays hidden until the cursor settles on it, so
+	// holding up/down does not fire a sweep at every step
+	chunkSettleDelay = 200 * time.Millisecond
+
 	// findChunk runs on every redraw (every 16ms while animating), so
 	// boundary scans bail beyond this distance instead of walking a
 	// huge uniformly-indented file end to end
@@ -131,15 +135,19 @@ type chunkAnim struct {
 	start time.Time
 }
 
-// visible returns how many guide cells are revealed right now, restarting
-// the clock when the chunk changed, and whether more frames are needed.
+// visible returns how many guide cells are revealed right now, and whether
+// more frames are needed. A changed chunk restarts the clock, set in the
+// future so the sweep only begins once the cursor has settled.
 func (a *chunkAnim) visible(cg chunkGuide) (int, bool) {
 	if cg != a.shown {
 		a.shown = cg
-		a.start = time.Now()
+		a.start = time.Now().Add(chunkSettleDelay)
+	}
+	elapsed := time.Since(a.start)
+	if elapsed < 0 {
+		return 0, true
 	}
 	total := cg.cells()
-	elapsed := time.Since(a.start)
 	if elapsed >= chunkAnimDuration {
 		return total, false
 	}
