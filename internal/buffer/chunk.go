@@ -40,12 +40,43 @@ func (b *Buffer) IndentChunk(cury int) (Chunk, bool) {
 	return findIndentChunk(b.LineBytes, b.LinesNum(), cury, tabsize)
 }
 
-// BraceChunk locates the innermost multi-line bracket pair around cur.
-// It reports false when no pair encloses the cursor within the scan
-// limit.
+// BraceChunk locates the innermost bracket pair around cur that spans
+// more than one line. It reports false when no pair encloses the cursor
+// within the scan limit.
 func (b *Buffer) BraceChunk(cur Loc) (Chunk, bool) {
+	var cg Chunk
 	tabsize := util.IntOpt(b.Settings["tabsize"])
-	return findBraceChunk(b.LineBytes, b.LinesNum(), cur, tabsize)
+	ymin, _ := chunkScanBounds(cur.Y, b.LinesNum())
+
+	cg.Start = -1
+	// a line that leaves a bracket open anchors the chunk that bracket
+	// opens, mirroring the indent mode's header rule
+	line := []rune(string(b.LineBytes(cur.Y)))
+	if x := lastOpenBrace(line); x >= 0 {
+		pair, _ := braceDir(line[x])
+		if cl, ok := b.findMatchingBrace(pair, Loc{x, cur.Y}, pair[0]); ok && cl.Y > cur.Y {
+			cg.Start, cg.End = cur.Y, cl.Y
+		}
+	}
+	// enclosing pairs living on a single line are not chunks: consume
+	// them and keep scanning outward
+	pos := cur
+	for cg.Start < 0 {
+		op, pair, ok := enclosingBrace(b.LineBytes, ymin, pos)
+		if !ok {
+			return cg, false
+		}
+		if cl, ok := b.findMatchingBrace(pair, op, pair[0]); ok && cl.Y > op.Y {
+			cg.Start, cg.End = op.Y, cl.Y
+			break
+		}
+		pos = op
+	}
+
+	cg.StartIndent, _ = visualIndent(b.LineBytes(cg.Start), tabsize)
+	cg.EndIndent, _ = visualIndent(b.LineBytes(cg.End), tabsize)
+	cg.finalize(b.LineBytes, cur.Y, tabsize)
+	return cg, true
 }
 
 // visualIndent returns the display width of the line's leading whitespace
@@ -79,23 +110,10 @@ func chunkScanBounds(y, nlines int) (int, int) {
 }
 
 // finalize turns raw boundaries into a drawable guide: place the guide
-// column one indent level left of the boundary indent and retarget
-// corners that a column-zero boundary leaves with no whitespace to draw
-// into.
+// column one indent level left of the boundary indent. Column-zero
+// boundary lines have no whitespace to hold their corner; the display
+// layer skips such corner rows and the bars just span the body.
 func (cg *Chunk) finalize(getLine func(int) []byte, cury, tabsize int) {
-	// a boundary at column zero has no whitespace to hold the bottom
-	// corner, leaving the bars dangling, so anchor the corner on the
-	// chunk's last code line instead (such blocks read as ending there:
-	// the closing token, if any, sits at top level)
-	if cg.EndIndent == 0 {
-		for y := cg.End - 1; y > cg.Start; y-- {
-			if w, b := visualIndent(getLine(y), tabsize); !b {
-				cg.End, cg.EndIndent = y, w
-				break
-			}
-		}
-	}
-
 	cg.GuideCol = cg.StartIndent
 	if cg.EndIndent < cg.GuideCol {
 		cg.GuideCol = cg.EndIndent
@@ -170,6 +188,19 @@ func findIndentChunk(getLine func(int) []byte, nlines, cury, tabsize int) (Chunk
 		return cg, false
 	}
 
+	// a dedent straight to column zero means the boundary is a sibling
+	// statement, not part of the chunk (unlike bracket mode, where the
+	// closer is the chunk's own last line), so anchor the corner on the
+	// chunk's last code line instead of dangling the bars over it
+	if cg.EndIndent == 0 {
+		for y := cg.End - 1; y > cg.Start; y-- {
+			if w, b := visualIndent(getLine(y), tabsize); !b {
+				cg.End, cg.EndIndent = y, w
+				break
+			}
+		}
+	}
+
 	cg.finalize(getLine, cury, tabsize)
 	return cg, true
 }
@@ -207,31 +238,6 @@ func lastOpenBrace(line []rune) int {
 	return open[len(open)-1]
 }
 
-// braceMatchForward finds the closer matching the opener at start,
-// scanning no further than line ymax
-func braceMatchForward(getLine func(int) []byte, ymax int, start Loc, pair [2]rune) (Loc, bool) {
-	depth := 0
-	for y := start.Y; y <= ymax; y++ {
-		l := []rune(string(getLine(y)))
-		x0 := 0
-		if y == start.Y {
-			x0 = start.X
-		}
-		for x := x0; x < len(l); x++ {
-			switch l[x] {
-			case pair[0]:
-				depth++
-			case pair[1]:
-				depth--
-				if depth == 0 {
-					return Loc{x, y}, true
-				}
-			}
-		}
-	}
-	return start, false
-}
-
 // enclosingBrace scans backwards from cur (exclusive) for the nearest
 // bracket left open at the cursor, scanning no further than line ymin.
 // Type-blind pairing, as in lastOpenBrace.
@@ -256,41 +262,4 @@ func enclosingBrace(getLine func(int) []byte, ymin int, cur Loc) (Loc, [2]rune, 
 		}
 	}
 	return cur, [2]rune{}, false
-}
-
-// findBraceChunk locates the innermost bracket pair around cur that
-// spans more than one line.
-func findBraceChunk(getLine func(int) []byte, nlines int, cur Loc, tabsize int) (Chunk, bool) {
-	var cg Chunk
-	ymin, ymax := chunkScanBounds(cur.Y, nlines)
-
-	cg.Start = -1
-	// a line that leaves a bracket open anchors the chunk that bracket
-	// opens, mirroring the indent mode's header rule
-	line := []rune(string(getLine(cur.Y)))
-	if x := lastOpenBrace(line); x >= 0 {
-		pair, _ := braceDir(line[x])
-		if cl, ok := braceMatchForward(getLine, ymax, Loc{x, cur.Y}, pair); ok && cl.Y > cur.Y {
-			cg.Start, cg.End = cur.Y, cl.Y
-		}
-	}
-	// enclosing pairs living on a single line are not chunks: consume
-	// them and keep scanning outward
-	pos := cur
-	for cg.Start < 0 {
-		op, pair, ok := enclosingBrace(getLine, ymin, pos)
-		if !ok {
-			return cg, false
-		}
-		if cl, ok := braceMatchForward(getLine, ymax, op, pair); ok && cl.Y > op.Y {
-			cg.Start, cg.End = op.Y, cl.Y
-			break
-		}
-		pos = op
-	}
-
-	cg.StartIndent, _ = visualIndent(getLine(cg.Start), tabsize)
-	cg.EndIndent, _ = visualIndent(getLine(cg.End), tabsize)
-	cg.finalize(getLine, cur.Y, tabsize)
-	return cg, true
 }

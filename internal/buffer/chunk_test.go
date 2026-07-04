@@ -60,7 +60,13 @@ func TestFindIndentChunk(t *testing.T) {
 	}
 }
 
-func TestFindBraceChunk(t *testing.T) {
+func braceBuf(src string) *Buffer {
+	b := NewBufferFromString(src, "", BTDefault)
+	b.Settings["tabsize"] = float64(8)
+	return b
+}
+
+func TestBraceChunk(t *testing.T) {
 	//	0: func main() {
 	//	1: 	if x >
 	//	2: 		0 {
@@ -70,7 +76,7 @@ func TestFindBraceChunk(t *testing.T) {
 	//	6: 		d,
 	//	7: 	)
 	//	8: }
-	getLine, n := linesOf("func main() {\n\tif x >\n\t\t0 {\n\t\ta(b)\n\t}\n\tc(\n\t\td,\n\t)\n}")
+	b := braceBuf("func main() {\n\tif x >\n\t\t0 {\n\t\ta(b)\n\t}\n\tc(\n\t\td,\n\t)\n}")
 
 	for _, c := range []struct {
 		cur              Loc
@@ -86,47 +92,43 @@ func TestFindBraceChunk(t *testing.T) {
 		// col-0 `}` retargets nothing here (endIndent 8 > 0)
 		{Loc{4, 3}, 2, 4, 0, true},
 	} {
-		cg, ok := findBraceChunk(getLine, n, c.cur, 8)
+		cg, ok := b.BraceChunk(c.cur)
 		if ok != c.ok || ok && (cg.Start != c.start || cg.End != c.end || cg.GuideCol != c.gcol) {
-			t.Errorf("findBraceChunk(%v) = %+v,%v, want %+v", c.cur, cg, ok, c)
+			t.Errorf("BraceChunk(%v) = %+v,%v, want %+v", c.cur, cg, ok, c)
 		}
 	}
 
-	// func chunk: bottom corner retargets off the col-0 `}` to the last
-	// code line
-	if cg, ok := findBraceChunk(getLine, n, Loc{0, 1}, 8); !ok || cg.Start != 0 || cg.End != 7 || cg.EndIndent != 8 {
-		t.Errorf("func chunk: got %+v,%v, want start 0 end 7 endIndent 8", cg, ok)
+	// func chunk: the col-0 `}` stays the boundary (no corner drawn
+	// there, bars span the body)
+	if cg, ok := b.BraceChunk(Loc{0, 1}); !ok || cg.Start != 0 || cg.End != 8 || cg.EndIndent != 0 {
+		t.Errorf("func chunk: got %+v,%v, want start 0 end 8 endIndent 0", cg, ok)
+	}
+
+	// Allman braces: the guide runs to the function's own closer, not
+	// the inner for-loop's `}` above it
+	b = braceBuf("f()\n{\n\ta();\n\tfor (;;) {\n\t\tb();\n\t}\n}")
+	if cg, ok := b.BraceChunk(Loc{0, 1}); !ok || cg.Start != 1 || cg.End != 6 || cg.EndIndent != 0 {
+		t.Errorf("allman: got %+v,%v, want start 1 end 6 endIndent 0", cg, ok)
 	}
 
 	// no enclosing pair at top level
-	getLine, n = linesOf("x := 1\ny := 2")
-	if _, ok := findBraceChunk(getLine, n, Loc{0, 1}, 8); ok {
+	if _, ok := braceBuf("x := 1\ny := 2").BraceChunk(Loc{0, 1}); ok {
 		t.Error("chunk reported at top level")
 	}
 
 	// unclosed opener is not a chunk
-	getLine, n = linesOf("if x {\n\ta(")
-	if _, ok := findBraceChunk(getLine, n, Loc{3, 1}, 8); ok {
+	if _, ok := braceBuf("if x {\n\ta(").BraceChunk(Loc{3, 1}); ok {
 		t.Error("unclosed chunk reported")
 	}
 
 	// blank line inside a block still resolves (indent mode cannot)
-	getLine, n = linesOf("if x {\n\ta()\n\n\tb()\n}")
-	if cg, ok := findBraceChunk(getLine, n, Loc{0, 2}, 8); !ok || cg.Start != 0 || cg.End != 3 {
-		t.Errorf("blank line: got %+v,%v, want start 0 end 3", cg, ok)
+	if cg, ok := braceBuf("if x {\n\ta()\n\n\tb()\n}").BraceChunk(Loc{0, 2}); !ok || cg.Start != 0 || cg.End != 4 {
+		t.Errorf("blank line: got %+v,%v, want start 0 end 4", cg, ok)
 	}
 
 	// boundaries beyond the scan cap
-	huge := func(i int) []byte {
-		if i == 0 {
-			return []byte("f(")
-		}
-		if i == 2*chunkScanLimit+2 {
-			return []byte(")")
-		}
-		return []byte("\tx,")
-	}
-	if _, ok := findBraceChunk(huge, 2*chunkScanLimit+3, Loc{0, chunkScanLimit + 1}, 8); ok {
+	huge := "f(\n" + strings.Repeat("\tx,\n", 2*chunkScanLimit+1) + ")"
+	if _, ok := braceBuf(huge).BraceChunk(Loc{0, chunkScanLimit + 1}); ok {
 		t.Error("chunk beyond scan limit reported")
 	}
 }

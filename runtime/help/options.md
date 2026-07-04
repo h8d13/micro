@@ -189,7 +189,9 @@ Here are the available options:
     * `bracket`: the chunk is the innermost `()`, `[]` or `{}` pair spanning
        more than one line around the cursor. Exact block extents for brace
        languages (multi-line conditions, mixed indentation), but brackets
-       inside strings and comments miscount, as with `matchbrace`.
+       inside strings and comments miscount, as with `matchbrace`. The
+       guide only draws into whitespace, so a bracket in column zero gets
+       no corner row; the bars stop at the body's edge.
 
     default value: `indent`
 
