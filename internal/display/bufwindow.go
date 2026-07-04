@@ -482,7 +482,13 @@ func (w *BufWindow) displayBuffer() {
 	hlchunk := b.Settings["hlchunk"].(bool) && w.active
 	var chunk chunkGuide
 	if hlchunk {
-		chunk, hlchunk = findChunk(b.LineBytes, b.LinesNum(), b.GetActiveCursor().Y, tabsize)
+		var c buffer.Chunk
+		if b.Settings["hlchunkmode"].(string) == "bracket" {
+			c, hlchunk = b.BraceChunk(b.GetActiveCursor().Loc)
+		} else {
+			c, hlchunk = b.IndentChunk(b.GetActiveCursor().Y)
+		}
+		chunk = chunkGuide{c}
 	}
 	chunkVisible := 0
 	if hlchunk {
@@ -865,7 +871,7 @@ func (w *BufWindow) displayBuffer() {
 			// the guide continues through lines ending left of it
 			// (blank lines mostly); with softwrap a wrapped line is
 			// always wider than gcol, so the mapping below is safe
-			if hlchunk && totalwidth <= chunk.gcol {
+			if hlchunk && totalwidth <= chunk.GuideCol {
 				if cr := chunkRuneAt(bloc.Y, i-w.gutterOffset+w.StartCol); cr != 0 {
 					fillRune = cr
 					curStyle = curStyle.Foreground(chunkFg)
@@ -878,7 +884,7 @@ func (w *BufWindow) displayBuffer() {
 			// Display newline within a selection
 			drawrune, drawstyle, preservebg := getRuneStyle(' ', config.DefStyle, 0, totalwidth, true)
 			// the newline cell may sit exactly on the guide column
-			if hlchunk && totalwidth <= chunk.gcol {
+			if hlchunk && totalwidth <= chunk.GuideCol {
 				if cr := chunkRuneAt(bloc.Y, totalwidth); cr != 0 {
 					drawrune = cr
 					drawstyle = drawstyle.Foreground(chunkFg)

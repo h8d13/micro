@@ -175,12 +175,23 @@ Here are the available options:
 
     default value: `hsplit`
 
-* `hlchunk`: highlight the indent chunk containing the cursor, i.e. the lines
-   between the nearest lines above and below it with smaller indentation.
-   The guide is drawn in the leading whitespace and colored by the `hlchunk`
-   colorscheme group.
+* `hlchunk`: highlight the chunk containing the cursor with a guide drawn
+   in the leading whitespace, colored by the `hlchunk` colorscheme group.
+   How the chunk is detected is set by `hlchunkmode`.
 
     default value: `false`
+
+* `hlchunkmode`: how `hlchunk` detects the chunk around the cursor.
+   Possible values:
+    * `indent`: the chunk is delimited by the nearest lines above and below
+       the cursor with smaller indentation. Works for any language but
+       trusts the indentation.
+    * `bracket`: the chunk is the innermost `()`, `[]` or `{}` pair spanning
+       more than one line around the cursor. Exact block extents for brace
+       languages (multi-line conditions, mixed indentation), but brackets
+       inside strings and comments miscount, as with `matchbrace`.
+
+    default value: `indent`
 
 * `hlsearch`: highlight all instances of the searched text after a successful
    search. This highlighting can be temporarily turned off via the
@@ -591,6 +602,7 @@ so that you can see what the formatting should look like.
     "ftoptions": true,
     "helpsplit": "hsplit",
     "hlchunk": false,
+    "hlchunkmode": "indent",
     "hlsearch": false,
     "hltaberrors": false,
     "hltrailingws": false,
