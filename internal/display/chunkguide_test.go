@@ -18,9 +18,10 @@ func TestFindChunk(t *testing.T) {
 		ok                     bool
 	}{
 		{2, 1, 5, 0, true},  // inside if block
-		{3, 1, 5, 0, true},  // blank line keeps the chunk
-		{1, 0, 6, 0, true},  // if line belongs to func body
-		{0, 0, 0, 0, false}, // top level
+		{3, 0, 0, 0, false}, // blank line draws nothing
+		{1, 1, 5, 0, true},  // header line anchors the block it opens
+		{0, 0, 5, 0, true},  // func chunk: corner retargets off the col-0 `}`
+		{6, 0, 0, 0, false}, // closing brace opens nothing
 	} {
 		cg, ok := findChunk(getLine, n, c.cury, 8)
 		if ok != c.ok || ok && (cg.start != c.start || cg.end != c.end || cg.gcol != c.gcol) {
@@ -32,6 +33,19 @@ func TestFindChunk(t *testing.T) {
 	getLine, n = linesOf("if x {\n\ta()")
 	if _, ok := findChunk(getLine, n, 1, 8); ok {
 		t.Error("unclosed chunk reported")
+	}
+
+	// a dedent to column zero anchors the corner on the last code line
+	getLine, n = linesOf("def f():\n\ta()\n\n\ndef g():")
+	if cg, ok := findChunk(getLine, n, 1, 8); !ok || cg.end != 1 || cg.endIndent != 8 {
+		t.Errorf("dedent to zero: end,endIndent,ok = %d,%d,%v, want 1,8,true", cg.end, cg.endIndent, ok)
+	}
+
+	// header whose block dedents to zero: corner lands on the body's
+	// last line, not the next top-level statement
+	getLine, n = linesOf("def f():\n\ttry:\n\t\ta()\n\n\ndef g():")
+	if cg, ok := findChunk(getLine, n, 1, 8); !ok || cg.start != 1 || cg.end != 2 || cg.gcol != 0 {
+		t.Errorf("header dedent: got %+v,%v, want start 1 end 2 gcol 0", cg, ok)
 	}
 
 	// boundaries beyond the scan cap

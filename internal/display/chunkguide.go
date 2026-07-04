@@ -3,8 +3,9 @@ package display
 // The hlchunk option highlights the indent chunk around the active cursor,
 // in the spirit of hlchunk.nvim. A chunk is delimited by the nearest lines
 // above and below the cursor with smaller visual indent (the opening
-// statement and the closing token, or the next sibling statement). The
-// guide is drawn one indent level left of the boundary indent:
+// statement and the closing token, or the next sibling statement); a
+// cursor on a block-opening header anchors the chunk that header opens
+// instead. The guide is drawn one indent level left of the boundary indent:
 //
 //	if x {     <- start row:   ╭──
 //	    a()    <- middle row:  │
@@ -78,44 +79,62 @@ func findChunk(getLine func(int) []byte, nlines, cury, tabsize int) (chunkGuide,
 
 	curIndent, blank := visualIndent(getLine(cury), tabsize)
 	if blank {
-		// on a blank line take the deeper of the two neighboring
-		// indents, so the guide survives typing inside a block
-		curIndent = 0
-		for y := cury - 1; y >= ymin; y-- {
-			if w, b := visualIndent(getLine(y), tabsize); !b {
-				curIndent = w
-				break
-			}
-		}
-		for y := cury + 1; y <= ymax; y++ {
-			if w, b := visualIndent(getLine(y), tabsize); !b {
-				if w > curIndent {
-					curIndent = w
-				}
-				break
-			}
+		return cg, false
+	}
+	// a line opening a deeper block anchors the chunk it opens, not
+	// the block enclosing it (what treesitter gives hlchunk.nvim):
+	// the header is the top corner row and the chunk runs to the
+	// first line back at the header's indent or less
+	header := false
+	for y := cury + 1; y <= ymax; y++ {
+		if w, b := visualIndent(getLine(y), tabsize); !b {
+			header = w > curIndent
+			break
 		}
 	}
-	if curIndent == 0 {
+	if curIndent == 0 && !header {
 		return cg, false
 	}
 
 	cg.start = -1
-	for y := cury - 1; y >= ymin; y-- {
-		if w, b := visualIndent(getLine(y), tabsize); !b && w < curIndent {
-			cg.start, cg.startIndent = y, w
-			break
-		}
-	}
 	cg.end = -1
-	for y := cury + 1; y <= ymax; y++ {
-		if w, b := visualIndent(getLine(y), tabsize); !b && w < curIndent {
-			cg.end, cg.endIndent = y, w
-			break
+	if header {
+		cg.start, cg.startIndent = cury, curIndent
+		for y := cury + 1; y <= ymax; y++ {
+			if w, b := visualIndent(getLine(y), tabsize); !b && w <= curIndent {
+				cg.end, cg.endIndent = y, w
+				break
+			}
+		}
+	} else {
+		for y := cury - 1; y >= ymin; y-- {
+			if w, b := visualIndent(getLine(y), tabsize); !b && w < curIndent {
+				cg.start, cg.startIndent = y, w
+				break
+			}
+		}
+		for y := cury + 1; y <= ymax; y++ {
+			if w, b := visualIndent(getLine(y), tabsize); !b && w < curIndent {
+				cg.end, cg.endIndent = y, w
+				break
+			}
 		}
 	}
 	if cg.start < 0 || cg.end < 0 {
 		return cg, false
+	}
+
+	// a dedent straight to column zero has no whitespace to hold the
+	// bottom corner, leaving the bars dangling, so anchor the corner
+	// on the chunk's last code line instead (hlchunk's treesitter
+	// ranges end there too: such blocks have no closing token)
+	if cg.endIndent == 0 {
+		for y := cg.end - 1; y > cg.start; y-- {
+			if w, b := visualIndent(getLine(y), tabsize); !b {
+				cg.end, cg.endIndent = y, w
+				break
+			}
+		}
 	}
 
 	cg.gcol = cg.startIndent
@@ -125,6 +144,17 @@ func findChunk(getLine func(int) []byte, nlines, cury, tabsize int) (chunkGuide,
 	cg.gcol -= tabsize
 	if cg.gcol < 0 {
 		cg.gcol = 0
+	}
+
+	// a column-zero opener likewise has no top corner: keep bars off
+	// blank lines at the chunk's head (never past the cursor's line)
+	if cg.startIndent == 0 {
+		for cg.start+1 < cury {
+			if _, b := visualIndent(getLine(cg.start+1), tabsize); !b {
+				break
+			}
+			cg.start++
+		}
 	}
 	return cg, true
 }
