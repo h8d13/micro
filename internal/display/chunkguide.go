@@ -27,6 +27,11 @@ const (
 
 	chunkAnimDuration = 200 * time.Millisecond
 	chunkAnimFrame    = 16 * time.Millisecond
+
+	// findChunk runs on every redraw (every 16ms while animating), so
+	// boundary scans bail beyond this distance instead of walking a
+	// huge uniformly-indented file end to end
+	chunkScanLimit = 5000
 )
 
 type chunkGuide struct {
@@ -53,22 +58,32 @@ func visualIndent(line []byte, tabsize int) (int, bool) {
 }
 
 // findChunk locates the indent chunk around line cury. It reports false
-// when the cursor is at top level or a boundary is missing.
+// when the cursor is at top level or a boundary is missing, or when a
+// boundary lies further than chunkScanLimit lines away.
 func findChunk(getLine func(int) []byte, nlines, cury, tabsize int) (chunkGuide, bool) {
 	var cg chunkGuide
+
+	ymin := cury - chunkScanLimit
+	if ymin < 0 {
+		ymin = 0
+	}
+	ymax := cury + chunkScanLimit
+	if ymax > nlines-1 {
+		ymax = nlines - 1
+	}
 
 	curIndent, blank := visualIndent(getLine(cury), tabsize)
 	if blank {
 		// on a blank line take the deeper of the two neighboring
 		// indents, so the guide survives typing inside a block
 		curIndent = 0
-		for y := cury - 1; y >= 0; y-- {
+		for y := cury - 1; y >= ymin; y-- {
 			if w, b := visualIndent(getLine(y), tabsize); !b {
 				curIndent = w
 				break
 			}
 		}
-		for y := cury + 1; y < nlines; y++ {
+		for y := cury + 1; y <= ymax; y++ {
 			if w, b := visualIndent(getLine(y), tabsize); !b {
 				if w > curIndent {
 					curIndent = w
@@ -82,14 +97,14 @@ func findChunk(getLine func(int) []byte, nlines, cury, tabsize int) (chunkGuide,
 	}
 
 	cg.start = -1
-	for y := cury - 1; y >= 0; y-- {
+	for y := cury - 1; y >= ymin; y-- {
 		if w, b := visualIndent(getLine(y), tabsize); !b && w < curIndent {
 			cg.start, cg.startIndent = y, w
 			break
 		}
 	}
 	cg.end = -1
-	for y := cury + 1; y < nlines; y++ {
+	for y := cury + 1; y <= ymax; y++ {
 		if w, b := visualIndent(getLine(y), tabsize); !b && w < curIndent {
 			cg.end, cg.endIndent = y, w
 			break
