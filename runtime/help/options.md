@@ -175,13 +175,10 @@ Here are the available options:
 
     default value: `hsplit`
 
-* `hlchunk`: highlight the indent chunk surrounding the cursor with a guide
-   drawn one indent level left of the chunk's boundary lines: a `╭──` corner
-   on the line opening the chunk, `│` bars along it and a `╰─>` corner on the
-   line closing it. Chunk boundaries are the nearest lines above and below
-   the cursor with smaller indentation. The guide only ever replaces
-   whitespace, text is never covered. Its color is taken from the `hlchunk`
-   colorscheme group, falling back to the default text color.
+* `hlchunk`: highlight the indent chunk containing the cursor, i.e. the lines
+   between the nearest lines above and below it with smaller indentation.
+   The guide is drawn in the leading whitespace and colored by the `hlchunk`
+   colorscheme group.
 
     default value: `false`
 
