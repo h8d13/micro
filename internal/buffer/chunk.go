@@ -188,11 +188,13 @@ func findIndentChunk(getLine func(int) []byte, nlines, cury, tabsize int) (Chunk
 		return cg, false
 	}
 
-	// a dedent straight to column zero means the boundary is a sibling
-	// statement, not part of the chunk (unlike bracket mode, where the
-	// closer is the chunk's own last line), so anchor the corner on the
-	// chunk's last code line instead of dangling the bars over it
-	if cg.EndIndent == 0 {
+	// the lower boundary is the chunk's own last line only when it is
+	// a closing token; a sibling statement (python's except:, the next
+	// def) is not part of the chunk, so anchor the corner on the
+	// chunk's last code line instead of dangling the bars over it.
+	// col-0 closers retarget too: no whitespace there to hold a corner
+	// (unlike bracket mode, where the closer stays the boundary)
+	if cg.EndIndent == 0 || !closesChunk(getLine(cg.End)) {
 		for y := cg.End - 1; y > cg.Start; y-- {
 			if w, b := visualIndent(getLine(y), tabsize); !b {
 				cg.End, cg.EndIndent = y, w
@@ -203,6 +205,20 @@ func findIndentChunk(getLine func(int) []byte, nlines, cury, tabsize int) (Chunk
 
 	cg.finalize(getLine, cury, tabsize)
 	return cg, true
+}
+
+// closesChunk reports whether a boundary line is a block's own closing
+// token (first code rune closes a bracket) rather than a sibling
+// statement.
+func closesChunk(line []byte) bool {
+	for _, r := range string(line) {
+		if r == ' ' || r == '\t' {
+			continue
+		}
+		_, dir := braceDir(r)
+		return dir < 0
+	}
+	return false
 }
 
 // braceDir reports which pair a bracket rune belongs to; dir is +1 for

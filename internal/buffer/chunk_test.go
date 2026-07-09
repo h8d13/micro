@@ -48,6 +48,13 @@ func TestFindIndentChunk(t *testing.T) {
 		t.Errorf("header dedent: got %+v,%v, want start 1 end 2 gcol 0", cg, ok)
 	}
 
+	// a boundary at the header's own indent that is not a closing
+	// token is a sibling clause (except:), not the chunk's last line
+	getLine, n = linesOf("def f():\n\ttry:\n\t\ta()\n\texcept E:\n\t\tpass")
+	if cg, ok := findIndentChunk(getLine, n, 1, 8); !ok || cg.Start != 1 || cg.End != 2 || cg.GuideCol != 0 {
+		t.Errorf("sibling clause: got %+v,%v, want start 1 end 2 gcol 0", cg, ok)
+	}
+
 	// boundaries beyond the scan cap
 	huge := func(i int) []byte {
 		if i == 0 || i == 2*chunkScanLimit+2 {
